@@ -5,6 +5,7 @@ import { JournalEditor } from './components/JournalEditor';
 import { LightboxModal } from './components/LightboxModal';
 import { SearchModal } from './components/SearchModal';
 import { ExportModal } from './components/ExportModal';
+import { DbStatusModal } from './components/DbStatusModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { JournalEntry, JournalImage, SyncStatus } from './types/journal';
 import {
@@ -15,6 +16,11 @@ import {
   deleteEntryFromFirestore,
   syncLocalEntriesToCloud,
   INITIAL_SAMPLE_ENTRY,
+  fetchDbStatus,
+  saveEntryToMongo,
+  deleteEntryFromMongo,
+  fetchMongoEntries,
+  DbStatusInfo,
 } from './lib/journalService';
 import { Minimize2, Plus, ExternalLink, X } from 'lucide-react';
 
@@ -47,6 +53,8 @@ function JournalApp() {
   // Modals
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isDbModalOpen, setIsDbModalOpen] = useState(false);
+  const [dbStatus, setDbStatus] = useState<DbStatusInfo | null>(null);
   const [lightboxState, setLightboxState] = useState<{
     isOpen: boolean;
     images: JournalImage[];
@@ -58,6 +66,23 @@ function JournalApp() {
   });
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Initialize DB status check and load from MongoDB if configured
+  useEffect(() => {
+    const initDb = async () => {
+      const status = await fetchDbStatus();
+      setDbStatus(status);
+
+      if (status.provider === 'mongodb' && status.connected) {
+        const mongoEntries = await fetchMongoEntries();
+        if (mongoEntries && mongoEntries.length > 0) {
+          setEntries(mongoEntries);
+          saveLocalEntries(mongoEntries);
+        }
+      }
+    };
+    initDb();
+  }, []);
 
   // Apply dark mode class to root HTML
   useEffect(() => {
@@ -173,6 +198,9 @@ function JournalApp() {
         .then(() => setSyncStatus('synced'))
         .catch(() => setSyncStatus('error'));
     }
+
+    // Sync to MongoDB if active
+    saveEntryToMongo(newEntry).catch((err) => console.warn('Mongo save notice:', err));
   }, [entries, user, isOnline]);
 
   // Update current entry with autosave debounce
@@ -197,14 +225,17 @@ function JournalApp() {
     const targetEntry = updatedEntries.find((e) => e.id === selectedEntryId);
     if (!targetEntry) return;
 
-    // Debounce Firestore save
+    // Debounce saves
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
 
-    if (user && isOnline) {
-      setSyncStatus('saving');
-      saveTimeoutRef.current = setTimeout(async () => {
+    saveTimeoutRef.current = setTimeout(async () => {
+      // Save to MongoDB
+      saveEntryToMongo(targetEntry).catch((err) => console.warn('Mongo update notice:', err));
+
+      // Save to Firestore if authenticated
+      if (user && isOnline) {
         try {
           await saveEntryToFirestore(user.uid, targetEntry);
           setSyncStatus('synced');
@@ -212,7 +243,11 @@ function JournalApp() {
           console.error('Error auto-saving entry:', err);
           setSyncStatus('error');
         }
-      }, 700);
+      }
+    }, 700);
+
+    if (user && isOnline) {
+      setSyncStatus('saving');
     } else {
       setSyncStatus(isOnline ? 'local' : 'offline');
     }
@@ -233,6 +268,9 @@ function JournalApp() {
         handleNewEntry();
       }
     }
+
+    // Delete from MongoDB
+    deleteEntryFromMongo(id).catch((err) => console.warn('Mongo delete notice:', err));
 
     if (user && isOnline) {
       setSyncStatus('saving');
@@ -330,6 +368,8 @@ function JournalApp() {
           onNewEntry={handleNewEntry}
           onOpenSearch={() => setIsSearchModalOpen(true)}
           onOpenExport={() => setIsExportModalOpen(true)}
+          onOpenDbStatus={() => setIsDbModalOpen(true)}
+          dbProvider={dbStatus?.provider}
         />
       )}
 
@@ -446,6 +486,24 @@ function JournalApp() {
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         entries={entries}
+      />
+
+      {/* Database Status Modal */}
+      <DbStatusModal
+        isOpen={isDbModalOpen}
+        onClose={() => setIsDbModalOpen(false)}
+        dbStatus={dbStatus}
+        onRefresh={async () => {
+          const status = await fetchDbStatus();
+          setDbStatus(status);
+          if (status.provider === 'mongodb' && status.connected) {
+            const mongoEntries = await fetchMongoEntries();
+            if (mongoEntries && mongoEntries.length > 0) {
+              setEntries(mongoEntries);
+              saveLocalEntries(mongoEntries);
+            }
+          }
+        }}
       />
     </div>
   );

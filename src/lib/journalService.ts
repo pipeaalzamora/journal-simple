@@ -165,3 +165,74 @@ export async function syncLocalEntriesToCloud(
     }
   }
 }
+
+export interface DbStatusInfo {
+  provider: 'mongodb' | 'firestore';
+  mongodbConfigured: boolean;
+  connected: boolean;
+  message: string;
+}
+
+export async function fetchDbStatus(): Promise<DbStatusInfo> {
+  try {
+    const res = await fetch('/api/db/status');
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (e) {
+    console.warn('Error checking db status:', e);
+  }
+  return {
+    provider: 'firestore',
+    mongodbConfigured: false,
+    connected: false,
+    message: 'Almacenamiento local y Firestore activos.',
+  };
+}
+
+export async function saveEntryToMongo(entry: JournalEntry): Promise<boolean> {
+  try {
+    const res = await fetch('/api/entries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(entry),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return !!data.saved;
+    }
+  } catch (err) {
+    console.warn('MongoDB API write notice:', err);
+  }
+  return false;
+}
+
+export async function deleteEntryFromMongo(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/entries/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return !!data.deleted;
+    }
+  } catch (err) {
+    console.warn('MongoDB API delete notice:', err);
+  }
+  return false;
+}
+
+export async function fetchMongoEntries(): Promise<JournalEntry[] | null> {
+  try {
+    const res = await fetch('/api/entries');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.usingMongo && Array.isArray(data.entries) && data.entries.length > 0) {
+        return data.entries;
+      }
+    }
+  } catch (err) {
+    console.warn('MongoDB API read notice:', err);
+  }
+  return null;
+}

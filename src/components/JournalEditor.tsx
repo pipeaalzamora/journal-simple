@@ -14,6 +14,7 @@ import {
   Share2,
   Check,
   Upload,
+  Sparkles,
 } from 'lucide-react';
 import { JournalEntry, JournalImage } from '../types/journal';
 import {
@@ -21,6 +22,8 @@ import {
   extractImagesFromClipboard,
   extractImagesFromDrop,
 } from '../lib/imageUtils';
+import { InspirationCard } from './InspirationCard';
+import { DailyInspiration } from '../lib/inspirationService';
 
 interface JournalEditorProps {
   entry: JournalEntry;
@@ -56,9 +59,19 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
   const [showTagInput, setShowTagInput] = useState(false);
   const [newTagText, setNewTagText] = useState('');
   const [copiedNotification, setCopiedNotification] = useState(false);
+  const [showInspiration, setShowInspiration] = useState<boolean>(!entry.content.trim());
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // When switching entries, suggest inspiration if the entry is blank
+  useEffect(() => {
+    if (!entry.content.trim()) {
+      setShowInspiration(true);
+    } else {
+      setShowInspiration(false);
+    }
+  }, [entry.id]);
 
   // Auto-resize textarea to fit text naturally
   useEffect(() => {
@@ -163,6 +176,40 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
     }
     setNewTagText('');
     setShowTagInput(false);
+  };
+
+  const handleApplyInspiration = (insp: DailyInspiration) => {
+    const updates: Partial<JournalEntry> = {};
+
+    if (!entry.title?.trim() && insp.suggestedTitle) {
+      updates.title = insp.suggestedTitle;
+    }
+
+    const leadText = `— ${insp.prompt}\n\n`;
+    if (!entry.content.trim()) {
+      updates.content = leadText;
+    } else {
+      updates.content = `${entry.content}\n\n${leadText}`;
+    }
+
+    if (insp.suggestedTag) {
+      const cleanTag = insp.suggestedTag.replace(/^#/, '').trim();
+      const currentTags = entry.tags || [];
+      if (!currentTags.includes(cleanTag)) {
+        updates.tags = [...currentTags, cleanTag];
+      }
+    }
+
+    onUpdateEntry(updates);
+    setShowInspiration(false);
+
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        const len = textareaRef.current.value.length;
+        textareaRef.current.setSelectionRange(len, len);
+      }
+    }, 60);
   };
 
   const handleRemoveTag = (tagToRemove: string) => {
@@ -340,6 +387,20 @@ ${
               <Pin className={`w-3.5 h-3.5 ${entry.pinned ? 'fill-current' : ''}`} />
             </button>
 
+            {/* Inspiration Button */}
+            <button
+              onClick={() => setShowInspiration(!showInspiration)}
+              className={`flex items-center gap-1 px-2.5 py-1 text-xs font-mono-journal rounded border transition-colors ${
+                showInspiration
+                  ? 'border-neutral-900 dark:border-neutral-100 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
+                  : 'border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-neutral-800 dark:hover:border-neutral-200'
+              }`}
+              title="Inspiración diaria con Gemini (sugerencias para escribir)"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Inspiración</span>
+            </button>
+
             {/* Add Photo Button */}
             <button
               onClick={() => fileInputRef.current?.click()}
@@ -439,6 +500,15 @@ ${
             </button>
           )}
         </div>
+
+        {/* Daily Writing Inspiration Spark (Gemini) */}
+        {showInspiration && (
+          <InspirationCard
+            onApplyInspiration={handleApplyInspiration}
+            onClose={() => setShowInspiration(false)}
+            currentMood={entry.mood}
+          />
+        )}
 
         {/* Attached Images Grid */}
         {entry.images && entry.images.length > 0 && (
