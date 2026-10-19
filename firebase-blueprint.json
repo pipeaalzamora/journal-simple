@@ -1,0 +1,70 @@
+{
+  "entities": {
+    "JournalEntry": {
+      "title": "JournalEntry",
+      "description": "A thought or journal entry created by the user, containing text, tags, mood, and compressed photos.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the entry",
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID",
+          "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "description": "Optional title for the thought or reflection",
+          "maxLength": 200
+        },
+        "content": {
+          "type": "string",
+          "description": "Body text of the thought or reflection",
+          "maxLength": 50000
+        },
+        "images": {
+          "type": "array",
+          "description": "Array of attached photos/sketches data objects"
+        },
+        "tags": {
+          "type": "array",
+          "description": "Array of categorization tags"
+        },
+        "mood": {
+          "type": "string",
+          "description": "Optional mood/mindset descriptor",
+          "maxLength": 50
+        },
+        "date": {
+          "type": "string",
+          "description": "ISO date string YYYY-MM-DD",
+          "maxLength": 20
+        },
+        "pinned": {
+          "type": "boolean",
+          "description": "Whether the entry is pinned to the top"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of creation",
+          "maxLength": 50
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update",
+          "maxLength": 50
+        }
+      },
+      "required": ["id", "userId", "content", "date", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/entries/{entryId}": {
+      "schema": "JournalEntry",
+      "description": "User private thoughts and journal entries collection"
+    }
+  }
+}

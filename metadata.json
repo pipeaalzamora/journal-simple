@@ -1,0 +1,6 @@
+{
+  "name": "Tinta - Journal Minimalista",
+  "description": "Diario personal minimalista en blanco y negro para registrar pensamientos e imágenes con sincronización en la nube.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

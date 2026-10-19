@@ -1,0 +1,68 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidJournalEntry(data, expectedUserId) {
+      return data.keys().hasAll(['id', 'userId', 'content', 'date', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'title', 'content', 'images', 'tags', 'mood', 'date', 'pinned', 'createdAt', 'updatedAt'])
+        && data.userId == expectedUserId
+        && data.userId == request.auth.uid
+        && data.id is string
+        && isValidId(data.id)
+        && data.content is string
+        && data.content.size() <= 50000
+        && data.date is string
+        && data.date.size() <= 20
+        && data.createdAt is string
+        && data.createdAt.size() <= 50
+        && data.updatedAt is string
+        && data.updatedAt.size() <= 50
+        && (!('title' in data) || (data.title is string && data.title.size() <= 200))
+        && (!('mood' in data) || (data.mood is string && data.mood.size() <= 50))
+        && (!('pinned' in data) || (data.pinned is bool))
+        && (!('tags' in data) || (data.tags is list && data.tags.size() <= 15))
+        && (!('images' in data) || (data.images is list && data.images.size() <= 10));
+    }
+
+    // User private journal entries
+    match /users/{userId}/entries/{entryId} {
+      allow get: if isSignedIn() && request.auth.uid == userId && isValidId(entryId);
+      allow list: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isSignedIn()
+                    && request.auth.uid == userId
+                    && isValidId(entryId)
+                    && incoming().id == entryId
+                    && isValidJournalEntry(incoming(), userId);
+      allow update: if isSignedIn()
+                    && request.auth.uid == userId
+                    && isValidId(entryId)
+                    && isValidJournalEntry(incoming(), userId)
+                    && incoming().userId == existing().userId
+                    && incoming().createdAt == existing().createdAt
+                    && incoming().id == existing().id;
+      allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(entryId);
+    }
+  }
+}
