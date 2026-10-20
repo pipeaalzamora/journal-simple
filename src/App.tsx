@@ -12,6 +12,8 @@ import {
   subscribeToEntries,
   saveEntryToFirestore,
   deleteEntryFromFirestore,
+  saveEntryToMongo,
+  deleteEntryFromMongo,
 } from './lib/journalService';
 import { Minimize2, Plus, ExternalLink, X, CheckCircle } from 'lucide-react';
 
@@ -194,7 +196,13 @@ function JournalApp() {
     };
 
     try {
-      await saveEntryToFirestore(user.uid, entryToPublish);
+      // 1. Save to MongoDB
+      await saveEntryToMongo(entryToPublish);
+
+      // 2. Save to Firestore
+      if (isOnline) {
+        await saveEntryToFirestore(user.uid, entryToPublish);
+      }
       setSyncStatus('synced');
       setPublishToast('¡Post publicado con éxito!');
       setTimeout(() => setPublishToast(null), 4000);
@@ -223,6 +231,8 @@ function JournalApp() {
       }
     }
 
+    // Delete from MongoDB
+    deleteEntryFromMongo(id).catch(() => {});
     if (user && isOnline) {
       deleteEntryFromFirestore(user.uid, id).catch(() => {});
     }
@@ -248,6 +258,8 @@ function JournalApp() {
     setEntries(updatedEntries);
 
     const updatedTarget = { ...target, pinned: updatedPinned };
+    // Sync to MongoDB
+    saveEntryToMongo(updatedTarget).catch(() => {});
     if (isOnline) {
       saveEntryToFirestore(user.uid, updatedTarget).catch(() => {});
     }
