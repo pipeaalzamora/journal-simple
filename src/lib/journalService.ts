@@ -173,9 +173,11 @@ export interface DbStatusInfo {
   message: string;
 }
 
+const BASE_URL = import.meta.env.VITE_API_URL || '';
+
 export async function fetchDbStatus(): Promise<DbStatusInfo> {
   try {
-    const res = await fetch('/api/db/status');
+    const res = await fetch(`${BASE_URL}/api/db/status`);
     if (res.ok) {
       return await res.json();
     }
@@ -192,7 +194,7 @@ export async function fetchDbStatus(): Promise<DbStatusInfo> {
 
 export async function saveEntryToMongo(entry: JournalEntry): Promise<boolean> {
   try {
-    const res = await fetch('/api/entries', {
+    const res = await fetch(`${BASE_URL}/api/entries`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(entry),
@@ -209,7 +211,7 @@ export async function saveEntryToMongo(entry: JournalEntry): Promise<boolean> {
 
 export async function deleteEntryFromMongo(id: string): Promise<boolean> {
   try {
-    const res = await fetch(`/api/entries/${encodeURIComponent(id)}`, {
+    const res = await fetch(`${BASE_URL}/api/entries/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
     if (res.ok) {
@@ -224,7 +226,7 @@ export async function deleteEntryFromMongo(id: string): Promise<boolean> {
 
 export async function fetchMongoEntries(): Promise<JournalEntry[] | null> {
   try {
-    const res = await fetch('/api/entries');
+    const res = await fetch(`${BASE_URL}/api/entries`);
     if (res.ok) {
       const data = await res.json();
       if (data.usingMongo && Array.isArray(data.entries) && data.entries.length > 0) {

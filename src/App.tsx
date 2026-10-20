@@ -12,10 +12,6 @@ import {
   subscribeToEntries,
   saveEntryToFirestore,
   deleteEntryFromFirestore,
-  saveEntryToMongo,
-  deleteEntryFromMongo,
-  fetchMongoEntries,
-  DbStatusInfo,
 } from './lib/journalService';
 import { Minimize2, Plus, ExternalLink, X, CheckCircle } from 'lucide-react';
 
@@ -74,17 +70,6 @@ function JournalApp() {
 
     setSyncStatus('saving');
 
-    // Also fetch from MongoDB for this user
-    fetchMongoEntries().then((mongoEntries) => {
-      if (mongoEntries && mongoEntries.length > 0) {
-        const userMongo = mongoEntries.filter((e) => e.userId === user.uid || !e.userId);
-        if (userMongo.length > 0) {
-          setEntries(userMongo);
-          setSelectedEntryId(userMongo[0].id);
-        }
-      }
-    });
-
     // Subscribe to Firestore updates for user
     const unsubscribe = subscribeToEntries(
       user.uid,
@@ -103,7 +88,7 @@ function JournalApp() {
             id: `entry_${Date.now()}`,
             userId: user.uid,
             title: 'Mi primer pensamiento',
-            content: 'Escribe aquí tu primer pensamiento en Tinta. Todo se guarda en tu base de datos personal al pulsar Postear.',
+            content: 'Escribe aquí tu primer pensamiento en Tinta. Todo se guarda en tu base de datos personal al pulsar Publicar.',
             images: [],
             tags: ['bienvenida'],
             date: new Date().toISOString().split('T')[0],
@@ -114,7 +99,6 @@ function JournalApp() {
           setEntries([sample]);
           setSelectedEntryId(sample.id);
           saveEntryToFirestore(user.uid, sample);
-          saveEntryToMongo(sample);
         }
         setSyncStatus('synced');
       },
@@ -195,7 +179,7 @@ function JournalApp() {
     setEntries(updatedEntries);
   };
 
-  // Publish / Post current entry to Database (MongoDB + Firestore)
+  // Publish / Post current entry to Database (Firestore)
   const handlePublishEntry = async () => {
     if (!selectedEntry || !user) return;
 
@@ -210,14 +194,7 @@ function JournalApp() {
     };
 
     try {
-      // 1. Save to MongoDB
-      await saveEntryToMongo(entryToPublish);
-
-      // 2. Save to Firestore
-      if (isOnline) {
-        await saveEntryToFirestore(user.uid, entryToPublish);
-      }
-
+      await saveEntryToFirestore(user.uid, entryToPublish);
       setSyncStatus('synced');
       setPublishToast('¡Post publicado con éxito!');
       setTimeout(() => setPublishToast(null), 4000);
@@ -246,7 +223,6 @@ function JournalApp() {
       }
     }
 
-    deleteEntryFromMongo(id).catch(() => {});
     if (user && isOnline) {
       deleteEntryFromFirestore(user.uid, id).catch(() => {});
     }
@@ -272,7 +248,6 @@ function JournalApp() {
     setEntries(updatedEntries);
 
     const updatedTarget = { ...target, pinned: updatedPinned };
-    saveEntryToMongo(updatedTarget).catch(() => {});
     if (isOnline) {
       saveEntryToFirestore(user.uid, updatedTarget).catch(() => {});
     }
