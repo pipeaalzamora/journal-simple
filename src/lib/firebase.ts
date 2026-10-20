@@ -16,6 +16,12 @@ import {
   doc,
   getDocFromServer,
 } from 'firebase/firestore';
+import {
+  getStorage,
+  ref,
+  uploadBytes,
+  getDownloadURL,
+} from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase App
@@ -37,10 +43,22 @@ export const auth = authInstance;
 // Initialize Firestore with configured databaseId (CRITICAL)
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
+// Initialize Firebase Storage Bucket
+export const storage = getStorage(app);
+
 export const googleProvider = new GoogleAuthProvider();
 
 export { signInWithPopup, signOut, onAuthStateChanged };
 export type { User };
+
+export async function uploadImageToStorage(userId: string, file: File): Promise<string> {
+  const cleanName = file.name ? file.name.replace(/[^a-zA-Z0-9_.-]/g, '_') : 'image.jpg';
+  const filePath = `users/${userId}/images/${Date.now()}_${cleanName}`;
+  const storageRef = ref(storage, filePath);
+  await uploadBytes(storageRef, file);
+  const downloadUrl = await getDownloadURL(storageRef);
+  return downloadUrl;
+}
 
 export enum OperationType {
   CREATE = 'create',

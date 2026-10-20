@@ -5,28 +5,24 @@ import { JournalEditor } from './components/JournalEditor';
 import { LightboxModal } from './components/LightboxModal';
 import { SearchModal } from './components/SearchModal';
 import { ExportModal } from './components/ExportModal';
+import { LoginScreen } from './components/LoginScreen';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { JournalEntry, JournalImage, SyncStatus } from './types/journal';
 import {
-  getLocalEntries,
-  saveLocalEntries,
   subscribeToEntries,
   saveEntryToFirestore,
   deleteEntryFromFirestore,
-  syncLocalEntriesToCloud,
-  INITIAL_SAMPLE_ENTRY,
-  fetchDbStatus,
   saveEntryToMongo,
   deleteEntryFromMongo,
   fetchMongoEntries,
   DbStatusInfo,
 } from './lib/journalService';
-import { Minimize2, Plus, ExternalLink, X } from 'lucide-react';
+import { Minimize2, Plus, ExternalLink, X, CheckCircle } from 'lucide-react';
 
 function JournalApp() {
-  const { user, isOnline, authError, clearAuthError } = useAuth();
+  const { user, loading, isOnline, authError, clearAuthError } = useAuth();
 
-  // Dark Mode (Monochrome: Light Paper vs Deep Ink)
+  // Dark Mode
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     return localStorage.getItem('tinta_theme') === 'dark';
   });
@@ -35,14 +31,13 @@ function JournalApp() {
   const [isFocusMode, setIsFocusMode] = useState<boolean>(false);
 
   // Journal Entries
-  const [entries, setEntries] = useState<JournalEntry[]>(() => getLocalEntries());
-  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(() => {
-    const initial = getLocalEntries();
-    return initial[0]?.id || null;
-  });
+  const [entries, setEntries] = useState<JournalEntry[]>([]);
+  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
 
-  // Sync Status
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>(user ? 'synced' : 'local');
+  // Sync & Publish Status
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
+  const [isPublishing, setIsPublishing] = useState<boolean>(false);
+  const [publishToast, setPublishToast] = useState<string | null>(null);
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -52,7 +47,6 @@ function JournalApp() {
   // Modals
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [dbStatus, setDbStatus] = useState<DbStatusInfo | null>(null);
   const [lightboxState, setLightboxState] = useState<{
     isOpen: boolean;
     images: JournalImage[];
@@ -62,25 +56,6 @@ function JournalApp() {
     images: [],
     currentIndex: 0,
   });
-
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Initialize DB status check and load from MongoDB if configured
-  useEffect(() => {
-    const initDb = async () => {
-      const status = await fetchDbStatus();
-      setDbStatus(status);
-
-      if (status.provider === 'mongodb' && status.connected) {
-        const mongoEntries = await fetchMongoEntries();
-        if (mongoEntries && mongoEntries.length > 0) {
-          setEntries(mongoEntries);
-          saveLocalEntries(mongoEntries);
-        }
-      }
-    };
-    initDb();
-  }, []);
 
   // Apply dark mode class to root HTML
   useEffect(() => {
@@ -95,22 +70,22 @@ function JournalApp() {
 
   // Cloud sync subscription when user is authenticated
   useEffect(() => {
-    if (!user) {
-      setSyncStatus('local');
-      return;
-    }
+    if (!user) return;
 
     setSyncStatus('saving');
 
-    // Migrate any guest entries to user's cloud collection
-    const local = getLocalEntries();
-    if (local.length > 0) {
-      syncLocalEntriesToCloud(user.uid, local).catch((err) => {
-        console.warn('Initial cloud sync warning:', err);
-      });
-    }
+    // Also fetch from MongoDB for this user
+    fetchMongoEntries().then((mongoEntries) => {
+      if (mongoEntries && mongoEntries.length > 0) {
+        const userMongo = mongoEntries.filter((e) => e.userId === user.uid || !e.userId);
+        if (userMongo.length > 0) {
+          setEntries(userMongo);
+          setSelectedEntryId(userMongo[0].id);
+        }
+      }
+    });
 
-    // Subscribe to real-time updates
+    // Subscribe to Firestore updates for user
     const unsubscribe = subscribeToEntries(
       user.uid,
       (cloudEntries) => {
@@ -122,6 +97,24 @@ function JournalApp() {
             }
             return cloudEntries[0].id;
           });
+        } else if (entries.length === 0) {
+          // Create initial sample entry if empty
+          const sample: JournalEntry = {
+            id: `entry_${Date.now()}`,
+            userId: user.uid,
+            title: 'Mi primer pensamiento',
+            content: 'Escribe aquí tu primer pensamiento en Tinta. Todo se guarda en tu base de datos personal al pulsar Postear.',
+            images: [],
+            tags: ['bienvenida'],
+            date: new Date().toISOString().split('T')[0],
+            pinned: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          setEntries([sample]);
+          setSelectedEntryId(sample.id);
+          saveEntryToFirestore(user.uid, sample);
+          saveEntryToMongo(sample);
         }
         setSyncStatus('synced');
       },
@@ -141,25 +134,17 @@ function JournalApp() {
     }
   }, [entries, selectedEntryId]);
 
-  // Keyboard shortcuts (Cmd+K, Cmd+N, Esc, etc.)
+  // Keyboard shortcuts (Cmd+K, Cmd+N, Esc)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd/Ctrl + K: Open Search
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setIsSearchModalOpen((prev) => !prev);
       }
-      // Cmd/Ctrl + N: New Thought
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') {
         e.preventDefault();
         handleNewEntry();
       }
-      // Cmd/Ctrl + Shift + F: Toggle Focus Mode
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        setIsFocusMode((prev) => !prev);
-      }
-      // Escape: Exit focus mode
       if (e.key === 'Escape' && isFocusMode) {
         setIsFocusMode(false);
       }
@@ -171,10 +156,11 @@ function JournalApp() {
 
   // Create New Thought Entry
   const handleNewEntry = useCallback(() => {
+    if (!user) return;
     const today = new Date().toISOString().split('T')[0];
     const newEntry: JournalEntry = {
       id: `entry_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      userId: user ? user.uid : 'guest_user',
+      userId: user.uid,
       title: '',
       content: '',
       images: [],
@@ -187,21 +173,10 @@ function JournalApp() {
 
     const updated = [newEntry, ...entries];
     setEntries(updated);
-    saveLocalEntries(updated);
     setSelectedEntryId(newEntry.id);
+  }, [entries, user]);
 
-    if (user && isOnline) {
-      setSyncStatus('saving');
-      saveEntryToFirestore(user.uid, newEntry)
-        .then(() => setSyncStatus('synced'))
-        .catch(() => setSyncStatus('error'));
-    }
-
-    // Sync to MongoDB if active
-    saveEntryToMongo(newEntry).catch((err) => console.warn('Mongo save notice:', err));
-  }, [entries, user, isOnline]);
-
-  // Update current entry with autosave debounce
+  // Update current entry state locally
   const handleUpdateEntry = (changes: Partial<JournalEntry>) => {
     if (!selectedEntryId) return;
 
@@ -218,36 +193,41 @@ function JournalApp() {
     });
 
     setEntries(updatedEntries);
-    saveLocalEntries(updatedEntries);
+  };
 
-    const targetEntry = updatedEntries.find((e) => e.id === selectedEntryId);
-    if (!targetEntry) return;
+  // Publish / Post current entry to Database (MongoDB + Firestore)
+  const handlePublishEntry = async () => {
+    if (!selectedEntry || !user) return;
 
-    // Debounce saves
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
+    setIsPublishing(true);
+    setSyncStatus('saving');
 
-    saveTimeoutRef.current = setTimeout(async () => {
-      // Save to MongoDB
-      saveEntryToMongo(targetEntry).catch((err) => console.warn('Mongo update notice:', err));
+    const now = new Date().toISOString();
+    const entryToPublish: JournalEntry = {
+      ...selectedEntry,
+      userId: user.uid,
+      updatedAt: now,
+    };
 
-      // Save to Firestore if authenticated
-      if (user && isOnline) {
-        try {
-          await saveEntryToFirestore(user.uid, targetEntry);
-          setSyncStatus('synced');
-        } catch (err) {
-          console.error('Error auto-saving entry:', err);
-          setSyncStatus('error');
-        }
+    try {
+      // 1. Save to MongoDB
+      await saveEntryToMongo(entryToPublish);
+
+      // 2. Save to Firestore
+      if (isOnline) {
+        await saveEntryToFirestore(user.uid, entryToPublish);
       }
-    }, 700);
 
-    if (user && isOnline) {
-      setSyncStatus('saving');
-    } else {
-      setSyncStatus(isOnline ? 'local' : 'offline');
+      setSyncStatus('synced');
+      setPublishToast('¡Post publicado con éxito!');
+      setTimeout(() => setPublishToast(null), 4000);
+    } catch (err) {
+      console.error('Error publishing entry:', err);
+      setSyncStatus('error');
+      setPublishToast('Error al publicar.');
+      setTimeout(() => setPublishToast(null), 4000);
+    } finally {
+      setIsPublishing(false);
     }
   };
 
@@ -257,7 +237,6 @@ function JournalApp() {
 
     const remaining = entries.filter((item) => item.id !== id);
     setEntries(remaining);
-    saveLocalEntries(remaining);
 
     if (selectedEntryId === id) {
       if (remaining.length > 0) {
@@ -267,18 +246,9 @@ function JournalApp() {
       }
     }
 
-    // Delete from MongoDB
-    deleteEntryFromMongo(id).catch((err) => console.warn('Mongo delete notice:', err));
-
+    deleteEntryFromMongo(id).catch(() => {});
     if (user && isOnline) {
-      setSyncStatus('saving');
-      try {
-        await deleteEntryFromFirestore(user.uid, id);
-        setSyncStatus('synced');
-      } catch (err) {
-        console.error('Error deleting entry:', err);
-        setSyncStatus('error');
-      }
+      deleteEntryFromFirestore(user.uid, id).catch(() => {});
     }
   };
 
@@ -286,14 +256,13 @@ function JournalApp() {
   const handleTogglePin = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const target = entries.find((item) => item.id === id);
-    if (!target) return;
+    if (!target || !user) return;
 
     const updatedPinned = !target.pinned;
     const updatedEntries = entries.map((item) =>
       item.id === id ? { ...item, pinned: updatedPinned } : item
     );
 
-    // Re-sort: pinned on top
     updatedEntries.sort((a, b) => {
       if (a.pinned && !b.pinned) return -1;
       if (!a.pinned && b.pinned) return 1;
@@ -301,17 +270,11 @@ function JournalApp() {
     });
 
     setEntries(updatedEntries);
-    saveLocalEntries(updatedEntries);
 
-    if (user && isOnline) {
-      try {
-        await saveEntryToFirestore(user.uid, {
-          ...target,
-          pinned: updatedPinned,
-        });
-      } catch (err) {
-        console.error('Error toggling pin:', err);
-      }
+    const updatedTarget = { ...target, pinned: updatedPinned };
+    saveEntryToMongo(updatedTarget).catch(() => {});
+    if (isOnline) {
+      saveEntryToFirestore(user.uid, updatedTarget).catch(() => {});
     }
   };
 
@@ -324,7 +287,6 @@ function JournalApp() {
     });
   };
 
-  // Lightbox update caption
   const handleUpdateImageCaption = (imageId: string, newCaption: string) => {
     if (!selectedEntry) return;
     const updatedImages = (selectedEntry.images || []).map((img) =>
@@ -337,7 +299,6 @@ function JournalApp() {
     }));
   };
 
-  // Lightbox delete image
   const handleDeleteLightboxImage = (imageId: string) => {
     if (!selectedEntry) return;
     const updatedImages = (selectedEntry.images || []).filter(
@@ -352,6 +313,19 @@ function JournalApp() {
 
   const selectedEntry =
     entries.find((e) => e.id === selectedEntryId) || entries[0] || null;
+
+  // If loading or not authenticated, show LoginScreen
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-neutral-950">
+        <span className="w-4 h-4 rounded-full bg-black dark:bg-white animate-ping" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen />;
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100 transition-colors duration-200">
@@ -369,33 +343,11 @@ function JournalApp() {
         />
       )}
 
-      {/* Cloud Auth notice banner if browser blocks third-party iframe popups */}
-      {authError && (
-        <div className="bg-neutral-100 dark:bg-neutral-900 border-b border-neutral-300 dark:border-neutral-800 px-4 py-2.5 text-xs font-sans-ui text-neutral-800 dark:text-neutral-200 flex items-center justify-between gap-3 animate-fadeIn">
-          <div className="flex-1 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
-            <span className="font-medium text-neutral-900 dark:text-neutral-100">
-              Aviso de conexión en la nube:
-            </span>
-            <span className="text-neutral-600 dark:text-neutral-400">
-              {authError}
-            </span>
-            <a
-              href={window.location.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 font-medium underline underline-offset-2 text-neutral-900 dark:text-neutral-100 hover:opacity-80 shrink-0"
-            >
-              <span>Abrir en pestaña independiente</span>
-              <ExternalLink className="w-3 h-3" />
-            </a>
-          </div>
-          <button
-            onClick={clearAuthError}
-            className="p-1 rounded text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200 shrink-0"
-            title="Cerrar aviso"
-          >
-            <X className="w-4 h-4" />
-          </button>
+      {/* Publish Toast Notification */}
+      {publishToast && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 px-4 py-2 rounded-xl text-xs font-sans-ui shadow-2xl flex items-center gap-2 animate-fadeIn">
+          <CheckCircle className="w-4 h-4 text-emerald-400 dark:text-emerald-600" />
+          <span>{publishToast}</span>
         </div>
       )}
 
@@ -438,6 +390,8 @@ function JournalApp() {
             entry={selectedEntry}
             onUpdateEntry={handleUpdateEntry}
             onDeleteEntry={(id) => handleDeleteEntry(id)}
+            onPublishEntry={handlePublishEntry}
+            isPublishing={isPublishing}
             onOpenLightbox={handleOpenLightbox}
             isFocusMode={isFocusMode}
             onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}

@@ -14,7 +14,7 @@ import {
   Share2,
   Check,
   Upload,
-  Sparkles,
+  Send,
 } from 'lucide-react';
 import { JournalEntry, JournalImage } from '../types/journal';
 import {
@@ -22,13 +22,15 @@ import {
   extractImagesFromClipboard,
   extractImagesFromDrop,
 } from '../lib/imageUtils';
-import { InspirationCard } from './InspirationCard';
-import { DailyInspiration } from '../lib/inspirationService';
+import { useAuth } from '../context/AuthContext';
+import { uploadImageToStorage } from '../lib/firebase';
 
 interface JournalEditorProps {
   entry: JournalEntry;
   onUpdateEntry: (updated: Partial<JournalEntry>) => void;
   onDeleteEntry: (id: string) => void;
+  onPublishEntry: () => void;
+  isPublishing?: boolean;
   onOpenLightbox: (images: JournalImage[], index: number) => void;
   isFocusMode: boolean;
   onToggleFocusMode: () => void;
@@ -49,29 +51,22 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
   entry,
   onUpdateEntry,
   onDeleteEntry,
+  onPublishEntry,
+  isPublishing,
   onOpenLightbox,
   isFocusMode,
   onToggleFocusMode,
 }) => {
+  const { user } = useAuth();
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [showMoodMenu, setShowMoodMenu] = useState(false);
   const [showTagInput, setShowTagInput] = useState(false);
   const [newTagText, setNewTagText] = useState('');
   const [copiedNotification, setCopiedNotification] = useState(false);
-  const [showInspiration, setShowInspiration] = useState<boolean>(!entry.content.trim());
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // When switching entries, suggest inspiration if the entry is blank
-  useEffect(() => {
-    if (!entry.content.trim()) {
-      setShowInspiration(true);
-    } else {
-      setShowInspiration(false);
-    }
-  }, [entry.id]);
 
   // Auto-resize textarea to fit text naturally
   useEffect(() => {
@@ -84,33 +79,59 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
     }
   }, [entry.content]);
 
-  // Handle Clipboard Paste for images (e.g. Cmd+V a screenshot or copied photo)
+  // Handle Image upload: using Firebase Storage Bucket if user is logged in
+  const handleImageFiles = async (files: File[]) => {
+    if (files.length === 0) return;
+    setIsProcessingImage(true);
+    try {
+      const newImages: JournalImage[] = [];
+      for (const file of files) {
+        let imageUrl = '';
+        if (user) {
+          try {
+            imageUrl = await uploadImageToStorage(user.uid, file);
+          } catch (storageErr) {
+            console.warn('Storage bucket upload fallback to local dataUrl:', storageErr);
+            const processed = await processAndCompressImage(file);
+            imageUrl = processed.dataUrl;
+          }
+        } else {
+          const processed = await processAndCompressImage(file);
+          imageUrl = processed.dataUrl;
+        }
+
+        const newImg: JournalImage = {
+          id: `img_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          dataUrl: imageUrl,
+          caption: file.name,
+          createdAt: new Date().toISOString(),
+        };
+        newImages.push(newImg);
+      }
+
+      onUpdateEntry({
+        images: [...(entry.images || []), ...newImages],
+      });
+    } catch (err) {
+      console.error('Error handling image files:', err);
+    } finally {
+      setIsProcessingImage(false);
+    }
+  };
+
+  // Handle Clipboard Paste for images
   useEffect(() => {
     const handlePaste = async (e: ClipboardEvent) => {
       const imageFiles = extractImagesFromClipboard(e);
       if (imageFiles.length > 0) {
         e.preventDefault();
-        setIsProcessingImage(true);
-        try {
-          const newImages: JournalImage[] = [];
-          for (const file of imageFiles) {
-            const processed = await processAndCompressImage(file);
-            newImages.push(processed);
-          }
-          onUpdateEntry({
-            images: [...(entry.images || []), ...newImages],
-          });
-        } catch (err) {
-          console.error('Error pasting image:', err);
-        } finally {
-          setIsProcessingImage(false);
-        }
+        await handleImageFiles(imageFiles);
       }
     };
 
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [entry.images, onUpdateEntry]);
+  }, [entry.images, user]);
 
   // Handle Drag & Drop
   const handleDragOver = (e: React.DragEvent) => {
@@ -127,44 +148,7 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
     e.preventDefault();
     setIsDragging(false);
     const files = extractImagesFromDrop(e);
-    if (files.length > 0) {
-      setIsProcessingImage(true);
-      try {
-        const newImages: JournalImage[] = [];
-        for (const file of files) {
-          const processed = await processAndCompressImage(file);
-          newImages.push(processed);
-        }
-        onUpdateEntry({
-          images: [...(entry.images || []), ...newImages],
-        });
-      } catch (err) {
-        console.error('Error processing dropped images:', err);
-      } finally {
-        setIsProcessingImage(false);
-      }
-    }
-  };
-
-  const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return;
-    const files = Array.from(e.target.files);
-    setIsProcessingImage(true);
-    try {
-      const newImages: JournalImage[] = [];
-      for (const file of files) {
-        const processed = await processAndCompressImage(file);
-        newImages.push(processed);
-      }
-      onUpdateEntry({
-        images: [...(entry.images || []), ...newImages],
-      });
-    } catch (err) {
-      console.error('Error uploading images:', err);
-    } finally {
-      setIsProcessingImage(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
+    await handleImageFiles(files);
   };
 
   const handleAddTag = () => {
@@ -176,40 +160,6 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
     }
     setNewTagText('');
     setShowTagInput(false);
-  };
-
-  const handleApplyInspiration = (insp: DailyInspiration) => {
-    const updates: Partial<JournalEntry> = {};
-
-    if (!entry.title?.trim() && insp.suggestedTitle) {
-      updates.title = insp.suggestedTitle;
-    }
-
-    const leadText = `— ${insp.prompt}\n\n`;
-    if (!entry.content.trim()) {
-      updates.content = leadText;
-    } else {
-      updates.content = `${entry.content}\n\n${leadText}`;
-    }
-
-    if (insp.suggestedTag) {
-      const cleanTag = insp.suggestedTag.replace(/^#/, '').trim();
-      const currentTags = entry.tags || [];
-      if (!currentTags.includes(cleanTag)) {
-        updates.tags = [...currentTags, cleanTag];
-      }
-    }
-
-    onUpdateEntry(updates);
-    setShowInspiration(false);
-
-    setTimeout(() => {
-      if (textareaRef.current) {
-        textareaRef.current.focus();
-        const len = textareaRef.current.value.length;
-        textareaRef.current.setSelectionRange(len, len);
-      }
-    }, 60);
   };
 
   const handleRemoveTag = (tagToRemove: string) => {
@@ -252,54 +202,53 @@ ${
     window.print();
   };
 
-  // Word & Reading statistics
-  const wordCount = entry.content.trim() ? entry.content.trim().split(/\s+/).length : 0;
-  const charCount = entry.content.length;
-  const readTimeMin = Math.max(1, Math.ceil(wordCount / 200));
-
   const formatDisplayDate = (dateStr: string) => {
     try {
       const [year, month, day] = dateStr.split('-');
-      const d = new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10));
-      return new Intl.DateTimeFormat('es-ES', {
+      const date = new Date(Number(year), Number(month) - 1, Number(day));
+      return date.toLocaleDateString('es-ES', {
         weekday: 'long',
-        day: 'numeric',
-        month: 'long',
         year: 'numeric',
-      }).format(d);
+        month: 'long',
+        day: 'numeric',
+      });
     } catch {
       return dateStr;
     }
   };
 
   return (
-    <main
+    <div
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={`relative flex-1 flex flex-col h-full overflow-y-auto bg-white dark:bg-neutral-950 transition-colors ${
-        isFocusMode ? 'px-4 sm:px-12 md:px-24 py-8' : 'px-4 sm:px-8 md:px-12 py-6'
+      className={`flex-1 flex flex-col bg-white dark:bg-neutral-950 relative overflow-y-auto transition-colors ${
+        isFocusMode ? 'p-6 sm:p-12 md:p-16 max-w-4xl mx-auto w-full' : 'p-4 sm:p-8'
       }`}
     >
-      {/* Hidden File Input for Image upload */}
+      {/* Hidden file input for photos */}
       <input
-        ref={fileInputRef}
         type="file"
+        ref={fileInputRef}
+        onChange={async (e) => {
+          if (e.target.files) {
+            await handleImageFiles(Array.from(e.target.files));
+          }
+        }}
         accept="image/*"
         multiple
-        onChange={handleFileInputChange}
         className="hidden"
       />
 
-      {/* Drag & Drop Overlay */}
+      {/* Drag & Drop overlay */}
       {isDragging && (
-        <div className="absolute inset-4 z-30 rounded-xl border-2 border-dashed border-neutral-900 dark:border-neutral-100 bg-neutral-100/90 dark:bg-neutral-900/90 backdrop-blur-sm flex flex-col items-center justify-center pointer-events-none transition-all">
-          <Upload className="w-10 h-10 text-neutral-800 dark:text-neutral-200 animate-bounce mb-3" />
-          <p className="font-serif-journal text-lg text-neutral-900 dark:text-neutral-100 font-medium">
-            Suelta tus fotos aquí
+        <div className="absolute inset-0 z-30 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center text-white border-2 border-dashed border-white m-4 rounded-xl pointer-events-none">
+          <Upload className="w-10 h-10 animate-bounce mb-3" />
+          <p className="font-serif-journal text-lg font-medium">
+            Sube tus fotos al Bucket de Firebase
           </p>
-          <p className="font-sans-ui text-xs text-neutral-500 mt-1">
-            Se optimizarán automáticamente y se sincronizarán con este pensamiento.
+          <p className="font-sans-ui text-xs text-neutral-400 mt-1">
+            Se almacenarán de forma segura en tu cuenta.
           </p>
         </div>
       )}
@@ -387,25 +336,11 @@ ${
               <Pin className={`w-3.5 h-3.5 ${entry.pinned ? 'fill-current' : ''}`} />
             </button>
 
-            {/* Inspiration Button */}
-            <button
-              onClick={() => setShowInspiration(!showInspiration)}
-              className={`flex items-center gap-1 px-2.5 py-1 text-xs font-mono-journal rounded border transition-colors ${
-                showInspiration
-                  ? 'border-neutral-900 dark:border-neutral-100 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
-                  : 'border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-neutral-800 dark:hover:border-neutral-200'
-              }`}
-              title="Inspiración diaria con Gemini (sugerencias para escribir)"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Inspiración</span>
-            </button>
-
             {/* Add Photo Button */}
             <button
               onClick={() => fileInputRef.current?.click()}
               className="flex items-center gap-1 px-2.5 py-1 text-xs font-mono-journal rounded border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-neutral-800 dark:hover:border-neutral-200 transition-colors"
-              title="Insertar imagen (o arrastra y suelta / pega con Ctrl+V)"
+              title="Subir imagen al Bucket de Firebase"
             >
               <ImageIcon className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Foto</span>
@@ -501,20 +436,11 @@ ${
           )}
         </div>
 
-        {/* Daily Writing Inspiration Spark (Gemini) */}
-        {showInspiration && (
-          <InspirationCard
-            onApplyInspiration={handleApplyInspiration}
-            onClose={() => setShowInspiration(false)}
-            currentMood={entry.mood}
-          />
-        )}
-
         {/* Attached Images Grid */}
         {entry.images && entry.images.length > 0 && (
           <div className="mb-6">
             <div className="flex items-center justify-between text-xs font-mono-journal text-neutral-400 mb-2">
-              <span>Fotografías adjuntas ({entry.images.length})</span>
+              <span>Fotografías en Bucket ({entry.images.length})</span>
               <span className="text-[11px] italic">Haz clic en una imagen para ampliarla</span>
             </div>
 
@@ -527,8 +453,8 @@ ${
                 >
                   <img
                     src={img.dataUrl}
-                    alt={img.caption || `Foto ${idx + 1}`}
-                    className="w-full h-44 object-cover grayscale contrast-110 group-hover:scale-102 transition-transform duration-300"
+                    alt={img.caption || 'Imagen adjunta'}
+                    className="w-full h-32 object-cover transition-transform group-hover:scale-105 duration-300"
                   />
 
                   {/* Overlay on hover */}
@@ -562,37 +488,36 @@ ${
         {isProcessingImage && (
           <div className="flex items-center gap-2 p-3 mb-4 rounded border border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 text-xs font-mono-journal text-neutral-600 dark:text-neutral-400 animate-pulse">
             <span className="w-2 h-2 rounded-full bg-neutral-800 dark:bg-neutral-200 animate-ping" />
-            <span>Optimizando y comprimiendo imagen para la nube...</span>
+            <span>Subiendo imagen al Bucket de Firebase...</span>
           </div>
         )}
 
-        {/* Body Textarea */}
+        {/* Textarea Editor */}
         <textarea
           ref={textareaRef}
           value={entry.content}
           onChange={(e) => onUpdateEntry({ content: e.target.value })}
-          placeholder="Escribe tus pensamientos aquí con total libertad... 
-(Puedes arrastrar fotos, pegarlas con Ctrl+V desde el portapapeles o usar el botón de foto arriba)"
-          className="w-full font-serif-journal text-base sm:text-lg leading-relaxed text-neutral-900 dark:text-neutral-100 placeholder-neutral-300 dark:placeholder-neutral-700 bg-transparent focus:outline-none resize-none flex-1 min-h-[300px]"
+          placeholder="Escribe lo que tengas en mente..."
+          className="w-full flex-1 font-serif-journal text-base sm:text-lg leading-relaxed text-neutral-900 dark:text-neutral-100 placeholder-neutral-300 dark:placeholder-neutral-700 bg-transparent focus:outline-none resize-none min-h-[280px]"
         />
 
-        {/* Bottom Status / Metainfo Bar */}
-        <footer className="mt-8 pt-4 border-t border-neutral-200 dark:border-neutral-800 flex items-center justify-between text-xs font-mono-journal text-neutral-600 dark:text-neutral-400">
-          <div className="flex items-center gap-3">
-            <span>{wordCount} palabras</span>
-            <span>·</span>
-            <span>{charCount} caracteres</span>
-            <span className="hidden sm:inline">·</span>
-            <span className="hidden sm:inline">{readTimeMin} min de lectura</span>
+        {/* Bottom Post Bar with Publish Button */}
+        <div className="mt-8 pt-4 border-t border-neutral-200 dark:border-neutral-800 flex items-center justify-between">
+          <div className="text-xs font-mono-journal text-neutral-400">
+            {entry.content.trim().split(/\s+/).filter(Boolean).length} palabras ·{' '}
+            {entry.content.length} caracteres
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-neutral-600 dark:text-neutral-400">
-              Sincronización en tiempo real activa
-            </span>
-          </div>
-        </footer>
+          <button
+            onClick={onPublishEntry}
+            disabled={isPublishing}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-sans-ui font-medium bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 hover:opacity-90 transition-all shadow-lg disabled:opacity-50"
+          >
+            <Send className={`w-3.5 h-3.5 ${isPublishing ? 'animate-bounce' : ''}`} />
+            <span>{isPublishing ? 'Publicando...' : 'Publicar'}</span>
+          </button>
+        </div>
       </div>
-    </main>
+    </div>
   );
 };
