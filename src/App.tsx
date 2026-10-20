@@ -5,7 +5,6 @@ import { JournalEditor } from './components/JournalEditor';
 import { LightboxModal } from './components/LightboxModal';
 import { SearchModal } from './components/SearchModal';
 import { ExportModal } from './components/ExportModal';
-import { DbStatusModal } from './components/DbStatusModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { JournalEntry, JournalImage, SyncStatus } from './types/journal';
 import {
@@ -53,7 +52,6 @@ function JournalApp() {
   // Modals
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [isDbModalOpen, setIsDbModalOpen] = useState(false);
   const [dbStatus, setDbStatus] = useState<DbStatusInfo | null>(null);
   const [lightboxState, setLightboxState] = useState<{
     isOpen: boolean;
@@ -368,8 +366,6 @@ function JournalApp() {
           onNewEntry={handleNewEntry}
           onOpenSearch={() => setIsSearchModalOpen(true)}
           onOpenExport={() => setIsExportModalOpen(true)}
-          onOpenDbStatus={() => setIsDbModalOpen(true)}
-          dbProvider={dbStatus?.provider}
         />
       )}
 
@@ -486,24 +482,6 @@ function JournalApp() {
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         entries={entries}
-      />
-
-      {/* Database Status Modal */}
-      <DbStatusModal
-        isOpen={isDbModalOpen}
-        onClose={() => setIsDbModalOpen(false)}
-        dbStatus={dbStatus}
-        onRefresh={async () => {
-          const status = await fetchDbStatus();
-          setDbStatus(status);
-          if (status.provider === 'mongodb' && status.connected) {
-            const mongoEntries = await fetchMongoEntries();
-            if (mongoEntries && mongoEntries.length > 0) {
-              setEntries(mongoEntries);
-              saveLocalEntries(mongoEntries);
-            }
-          }
-        }}
       />
     </div>
   );

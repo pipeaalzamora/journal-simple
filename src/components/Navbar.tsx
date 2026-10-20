@@ -13,7 +13,6 @@ import {
   Download,
   LogOut,
   User as UserIcon,
-  Database,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { SyncStatus } from '../types/journal';
@@ -27,8 +26,6 @@ interface NavbarProps {
   onNewEntry: () => void;
   onOpenSearch: () => void;
   onOpenExport: () => void;
-  onOpenDbStatus: () => void;
-  dbProvider?: 'mongodb' | 'firestore';
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -40,8 +37,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNewEntry,
   onOpenSearch,
   onOpenExport,
-  onOpenDbStatus,
-  dbProvider,
 }) => {
   const { user, isOnline, signInWithGoogle, logOut } = useAuth();
 
@@ -95,16 +90,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               </>
             )}
           </div>
-
-          {/* Database Info Button */}
-          <button
-            onClick={onOpenDbStatus}
-            title={dbProvider === 'mongodb' ? 'Conectado a MongoDB' : 'Ver almacenamiento y MongoDB'}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono-journal rounded border border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 text-neutral-700 dark:text-neutral-300 hover:border-black dark:hover:border-white transition-colors"
-          >
-            <Database className="w-3.5 h-3.5" />
-            <span className="hidden lg:inline">{dbProvider === 'mongodb' ? 'MongoDB' : 'Base de datos'}</span>
-          </button>
 
           {/* Cloud Auth Connect button if guest */}
           {!user ? (
