@@ -11,64 +11,6 @@ import {
 import { db, handleFirestoreError, OperationType } from './firebase';
 import { JournalEntry } from '../types/journal';
 
-const LOCAL_STORAGE_KEY = 'tinta_journal_entries_v1';
-const GUEST_USER_ID = 'guest_user';
-
-export const INITIAL_SAMPLE_ENTRY: JournalEntry = {
-  id: 'intro_bienvenida',
-  userId: GUEST_USER_ID,
-  title: 'El placer de la hoja en blanco',
-  content: `Hoy decidí comenzar este diario. Hay algo profundamente sereno en el blanco y negro; elimina todo el ruido innecesario y te obliga a estar presente únicamente con tus palabras.
-
-Aquí puedes volcar cualquier pensamiento: reflexiones del día, citas memorables, planes o pequeñas observaciones cotidianas. 
-
-Puedes arrastrar fotografías, pegarlas directamente con Ctrl+V (o Cmd+V) desde tu portapapeles, organizarlas con etiquetas y activar el modo concentración para escribir sin interrupciones. Todo se sincroniza automáticamente en la nube.`,
-  images: [
-    {
-      id: 'img_intro_1',
-      dataUrl: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=1200&q=80',
-      caption: 'Un cuaderno abierto, luz de mañana y una taza de café.',
-      createdAt: new Date().toISOString(),
-      width: 1200,
-      height: 800,
-    },
-  ],
-  tags: ['reflexión', 'comienzo', 'escritura'],
-  mood: 'Calmo',
-  date: new Date().toISOString().split('T')[0],
-  pinned: true,
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-};
-
-/**
- * Loads entries cached in local storage.
- */
-export function getLocalEntries(): JournalEntry[] {
-  try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (!raw) {
-      return [INITIAL_SAMPLE_ENTRY];
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : [INITIAL_SAMPLE_ENTRY];
-  } catch (e) {
-    console.error('Error reading local storage journal entries:', e);
-    return [INITIAL_SAMPLE_ENTRY];
-  }
-}
-
-/**
- * Persists entries in local storage.
- */
-export function saveLocalEntries(entries: JournalEntry[]): void {
-  try {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(entries));
-  } catch (e) {
-    console.error('Error saving local storage journal entries:', e);
-  }
-}
-
 /**
  * Subscribes to real-time updates for a user's journal entries from Firestore.
  */
@@ -97,7 +39,6 @@ export function subscribeToEntries(
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       });
       onEntriesReceived(items);
-      saveLocalEntries(items);
     },
     (error) => {
       if (onError) onError(error);
@@ -147,25 +88,6 @@ export async function deleteEntryFromFirestore(
   }
 }
 
-/**
- * Migrates existing local entries into Firestore when a guest signs in.
- */
-export async function syncLocalEntriesToCloud(
-  userId: string,
-  localEntries: JournalEntry[]
-): Promise<void> {
-  for (const entry of localEntries) {
-    // Only upload if entry is guest created or matches this user
-    if (entry.userId === GUEST_USER_ID || entry.userId === userId) {
-      const updated = {
-        ...entry,
-        userId,
-      };
-      await saveEntryToFirestore(userId, updated);
-    }
-  }
-}
-
 export interface DbStatusInfo {
   provider: 'mongodb' | 'firestore';
   mongodbConfigured: boolean;
@@ -188,7 +110,7 @@ export async function fetchDbStatus(): Promise<DbStatusInfo> {
     provider: 'firestore',
     mongodbConfigured: false,
     connected: false,
-    message: 'Almacenamiento local y Firestore activos.',
+    message: 'Firestore activo.',
   };
 }
 
