@@ -15,6 +15,16 @@ import {
   Check,
   Upload,
   Send,
+  Eye,
+  Edit3,
+  CheckSquare,
+  Quote,
+  Heading2,
+  Bold,
+  Italic,
+  Code,
+  Clock,
+  Minus,
 } from 'lucide-react';
 import { JournalEntry, JournalImage } from '../types/journal';
 import {
@@ -24,6 +34,10 @@ import {
 } from '../lib/imageUtils';
 import { useAuth } from '../context/AuthContext';
 import { uploadImageToStorage } from '../lib/firebase';
+import { calculateReadingTime, TimeCapsuleMemory } from '../lib/journalStats';
+import { MarkdownRenderer } from './MarkdownRenderer';
+import { AmbientSoundControl } from './AmbientSoundControl';
+import { TimeCapsuleBanner } from './TimeCapsuleBanner';
 
 interface JournalEditorProps {
   entry: JournalEntry;
@@ -34,6 +48,8 @@ interface JournalEditorProps {
   onOpenLightbox: (images: JournalImage[], index: number) => void;
   isFocusMode: boolean;
   onToggleFocusMode: () => void;
+  timeCapsuleMemories?: TimeCapsuleMemory[];
+  onOpenMemory?: (entryId: string) => void;
 }
 
 const AVAILABLE_MOODS = [
@@ -56,6 +72,8 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
   onOpenLightbox,
   isFocusMode,
   onToggleFocusMode,
+  timeCapsuleMemories = [],
+  onOpenMemory,
 }) => {
   const { user } = useAuth();
   const [isDragging, setIsDragging] = useState(false);
@@ -63,21 +81,21 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
   const [showMoodMenu, setShowMoodMenu] = useState(false);
   const [showTagInput, setShowTagInput] = useState(false);
   const [newTagText, setNewTagText] = useState('');
-  const [copiedNotification, setCopiedNotification] = useState(false);
+  const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-resize textarea to fit text naturally
+  // Auto-resize textarea to fit text naturally in edit mode
   useEffect(() => {
-    if (textareaRef.current) {
+    if (viewMode === 'edit' && textareaRef.current) {
       textareaRef.current.style.height = 'auto';
       textareaRef.current.style.height = `${Math.max(
         240,
         textareaRef.current.scrollHeight
       )}px`;
     }
-  }, [entry.content]);
+  }, [entry.content, viewMode]);
 
   // Handle Image upload: using Firebase Storage Bucket if user is logged in
   const handleImageFiles = async (files: File[]) => {
@@ -132,6 +150,67 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
   }, [entry.images, user]);
+
+  // Markdown Quick Format Helpers
+  const insertMarkdownSnippet = (prefix: string, suffix: string = '') => {
+    if (viewMode !== 'edit') {
+      setViewMode('edit');
+    }
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = entry.content;
+    const selection = text.substring(start, end);
+
+    const replacement = `${prefix}${selection || 'texto'}${suffix}`;
+    const newContent = text.substring(0, start) + replacement + text.substring(end);
+
+    onUpdateEntry({ content: newContent });
+
+    setTimeout(() => {
+      textarea.focus();
+      const newCursorPos = start + prefix.length + (selection ? selection.length : 'texto'.length);
+      textarea.setSelectionRange(newCursorPos, newCursorPos);
+    }, 50);
+  };
+
+  const insertLinePrefix = (linePrefix: string) => {
+    if (viewMode !== 'edit') {
+      setViewMode('edit');
+    }
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const text = entry.content;
+
+    // Find start of current line
+    const lastNewline = text.lastIndexOf('\n', start - 1);
+    const lineStart = lastNewline === -1 ? 0 : lastNewline + 1;
+
+    const newContent = text.substring(0, lineStart) + linePrefix + text.substring(lineStart);
+    onUpdateEntry({ content: newContent });
+
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + linePrefix.length, start + linePrefix.length);
+    }, 50);
+  };
+
+  // Toggle interactive task in preview mode
+  const handleToggleTaskInPreview = (lineIndex: number, newChecked: boolean) => {
+    const lines = entry.content.split('\n');
+    if (lineIndex >= 0 && lineIndex < lines.length) {
+      const targetLine = lines[lineIndex];
+      const updatedLine = newChecked
+        ? targetLine.replace(/^(\s*-\s*\[)[ xX](\]\s*)/, '$1x$2')
+        : targetLine.replace(/^(\s*-\s*\[)[ xX](\]\s*)/, '$1 $2');
+      lines[lineIndex] = updatedLine;
+      onUpdateEntry({ content: lines.join('\n') });
+    }
+  };
 
   // Handle Drag & Drop
   const handleDragOver = (e: React.DragEvent) => {
@@ -217,6 +296,8 @@ ${
     }
   };
 
+  const readingTime = calculateReadingTime(entry.content);
+
   return (
     <div
       onDragOver={handleDragOver}
@@ -255,8 +336,13 @@ ${
 
       {/* Center Writing Container */}
       <div className="w-full max-w-3xl mx-auto flex-1 flex flex-col">
+        {/* On This Day Time Capsule Banner */}
+        {timeCapsuleMemories.length > 0 && onOpenMemory && (
+          <TimeCapsuleBanner memories={timeCapsuleMemories} onOpenMemory={onOpenMemory} />
+        )}
+
         {/* Top Entry Metadata Header */}
-        <div className="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-3 mb-6 gap-3">
+        <div className="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-3 mb-6 gap-3 flex-wrap">
           {/* Date Picker / Header */}
           <div className="flex items-center gap-2">
             <Calendar className="w-4 h-4 text-neutral-400" />
@@ -271,8 +357,39 @@ ${
             </span>
           </div>
 
-          {/* Quick Actions */}
-          <div className="flex items-center gap-1.5">
+          {/* Quick Actions & Ambient Sound */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {/* Ambient Sound Generator */}
+            <AmbientSoundControl />
+
+            {/* View Mode Toggle: Edit vs Preview */}
+            <div className="inline-flex rounded-lg border border-neutral-300 dark:border-neutral-700 p-0.5 bg-neutral-100/60 dark:bg-neutral-900/60 text-xs font-sans-ui">
+              <button
+                onClick={() => setViewMode('edit')}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${
+                  viewMode === 'edit'
+                    ? 'bg-white dark:bg-neutral-800 text-black dark:text-white font-medium shadow-sm'
+                    : 'text-neutral-500 hover:text-black dark:hover:text-white'
+                }`}
+                title="Modo edición de texto"
+              >
+                <Edit3 className="w-3 h-3" />
+                <span>Escribir</span>
+              </button>
+              <button
+                onClick={() => setViewMode('preview')}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${
+                  viewMode === 'preview'
+                    ? 'bg-white dark:bg-neutral-800 text-black dark:text-white font-medium shadow-sm'
+                    : 'text-neutral-500 hover:text-black dark:hover:text-white'
+                }`}
+                title="Modo lectura con listas interactivas"
+              >
+                <Eye className="w-3 h-3" />
+                <span>Lectura</span>
+              </button>
+            </div>
+
             {/* Mood selector button */}
             <div className="relative">
               <button
@@ -384,7 +501,7 @@ ${
           value={entry.title || ''}
           onChange={(e) => onUpdateEntry({ title: e.target.value })}
           placeholder="Título del pensamiento (opcional)..."
-          className="w-full font-serif-journal text-2xl sm:text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100 placeholder-neutral-300 dark:placeholder-neutral-700 bg-transparent focus:outline-none mb-4"
+          className="w-full font-serif-journal text-2xl sm:text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100 placeholder-neutral-300 dark:placeholder-neutral-700 bg-transparent focus:outline-none mb-3"
         />
 
         {/* Tags Section */}
@@ -435,6 +552,58 @@ ${
             </button>
           )}
         </div>
+
+        {/* Markdown Quick Toolbar (in edit mode) */}
+        {viewMode === 'edit' && (
+          <div className="flex items-center gap-1 mb-3 py-1 px-2 rounded-lg bg-neutral-100/60 dark:bg-neutral-900/40 border border-neutral-200 dark:border-neutral-800 text-xs font-mono-journal overflow-x-auto no-scrollbar">
+            <span className="text-[10px] text-neutral-400 uppercase tracking-widest mr-1">Atajos:</span>
+            <button
+              onClick={() => insertLinePrefix('- [ ] ')}
+              className="flex items-center gap-1 px-2 py-0.5 rounded hover:bg-neutral-200 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300"
+              title="Insertar casilla de verificación"
+            >
+              <CheckSquare className="w-3 h-3" />
+              <span>Lista / Tarea</span>
+            </button>
+            <button
+              onClick={() => insertLinePrefix('> ')}
+              className="flex items-center gap-1 px-2 py-0.5 rounded hover:bg-neutral-200 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300"
+              title="Insertar cita textual"
+            >
+              <Quote className="w-3 h-3" />
+              <span>Cita</span>
+            </button>
+            <button
+              onClick={() => insertLinePrefix('## ')}
+              className="flex items-center gap-1 px-2 py-0.5 rounded hover:bg-neutral-200 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300"
+              title="Subtítulo"
+            >
+              <Heading2 className="w-3 h-3" />
+              <span>Subtítulo</span>
+            </button>
+            <button
+              onClick={() => insertMarkdownSnippet('**', '**')}
+              className="px-2 py-0.5 rounded hover:bg-neutral-200 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300 font-bold"
+              title="Negrita"
+            >
+              B
+            </button>
+            <button
+              onClick={() => insertMarkdownSnippet('*', '*')}
+              className="px-2 py-0.5 rounded hover:bg-neutral-200 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300 italic font-serif"
+              title="Cursiva"
+            >
+              I
+            </button>
+            <button
+              onClick={() => insertLinePrefix('\n---\n')}
+              className="px-2 py-0.5 rounded hover:bg-neutral-200 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300"
+              title="Línea divisoria"
+            >
+              <Minus className="w-3 h-3" />
+            </button>
+          </div>
+        )}
 
         {/* Attached Images Grid */}
         {entry.images && entry.images.length > 0 && (
@@ -492,20 +661,36 @@ ${
           </div>
         )}
 
-        {/* Textarea Editor */}
-        <textarea
-          ref={textareaRef}
-          value={entry.content}
-          onChange={(e) => onUpdateEntry({ content: e.target.value })}
-          placeholder="Escribe lo que tengas en mente..."
-          className="w-full flex-1 font-serif-journal text-base sm:text-lg leading-relaxed text-neutral-900 dark:text-neutral-100 placeholder-neutral-300 dark:placeholder-neutral-700 bg-transparent focus:outline-none resize-none min-h-[280px]"
-        />
+        {/* Content Area: Live Edit vs Formatted Markdown Reading */}
+        <div className="flex-1 flex flex-col min-h-[320px]">
+          {viewMode === 'edit' ? (
+            <textarea
+              ref={textareaRef}
+              value={entry.content}
+              onChange={(e) => onUpdateEntry({ content: e.target.value })}
+              placeholder="Escribe lo que tengas en mente... (puedes usar - [ ] para listas de tareas, > para citas y ## para subtítulos)"
+              className="w-full flex-1 font-serif-journal text-base sm:text-lg leading-relaxed text-neutral-900 dark:text-neutral-100 placeholder-neutral-300 dark:placeholder-neutral-700 bg-transparent focus:outline-none resize-none min-h-[300px]"
+            />
+          ) : (
+            <div className="flex-1 py-1">
+              <MarkdownRenderer
+                content={entry.content}
+                onToggleTask={handleToggleTaskInPreview}
+              />
+            </div>
+          )}
+        </div>
 
-        {/* Bottom Post Bar with Publish Button */}
-        <div className="mt-8 pt-4 border-t border-neutral-200 dark:border-neutral-800 flex items-center justify-between">
-          <div className="text-xs font-mono-journal text-neutral-400">
-            {entry.content.trim().split(/\s+/).filter(Boolean).length} palabras ·{' '}
-            {entry.content.length} caracteres
+        {/* Bottom Post Bar with Reading Time & Publish Button */}
+        <div className="mt-8 pt-4 border-t border-neutral-200 dark:border-neutral-800 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3 text-xs font-mono-journal text-neutral-400">
+            <span>
+              {readingTime.words} palabras · {entry.content.length} caracteres
+            </span>
+            <span className="flex items-center gap-1 text-neutral-500 dark:text-neutral-400">
+              <Clock className="w-3.5 h-3.5" />
+              <span>{readingTime.label}</span>
+            </span>
           </div>
 
           <button

@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Navbar } from './components/Navbar';
 import { JournalList } from './components/JournalList';
 import { JournalEditor } from './components/JournalEditor';
 import { LightboxModal } from './components/LightboxModal';
 import { SearchModal } from './components/SearchModal';
 import { ExportModal } from './components/ExportModal';
+import { HabitsAndStatsModal } from './components/HabitsAndStatsModal';
 import { LoginScreen } from './components/LoginScreen';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { JournalEntry, JournalImage, SyncStatus } from './types/journal';
@@ -15,6 +16,7 @@ import {
   saveEntryToMongo,
   deleteEntryFromMongo,
 } from './lib/journalService';
+import { calculateStreak, findOnThisDayMemories } from './lib/journalStats';
 import { Minimize2, Plus, ExternalLink, X, CheckCircle } from 'lucide-react';
 
 function JournalApp() {
@@ -40,11 +42,13 @@ function JournalApp() {
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [selectedMood, setSelectedMood] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<'all' | 'pinned' | 'with-images'>('all');
 
   // Modals
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
   const [lightboxState, setLightboxState] = useState<{
     isOpen: boolean;
     images: JournalImage[];
@@ -54,6 +58,10 @@ function JournalApp() {
     images: [],
     currentIndex: 0,
   });
+
+  // Streaks & Time Capsule Memories
+  const streak = useMemo(() => calculateStreak(entries), [entries]);
+  const timeCapsuleMemories = useMemo(() => findOnThisDayMemories(entries), [entries]);
 
   // Apply dark mode class to root HTML
   useEffect(() => {
@@ -89,10 +97,17 @@ function JournalApp() {
           const sample: JournalEntry = {
             id: `entry_${Date.now()}`,
             userId: user.uid,
-            title: 'Mi primer pensamiento',
-            content: 'Escribe aquí tu primer pensamiento en Tinta. Todo se guarda en tu base de datos personal al pulsar Publicar.',
+            title: 'El placer de la hoja en blanco',
+            content: `Hoy decidí comenzar este diario. Hay algo profundamente sereno en el blanco y negro; elimina todo el ruido innecesario y te obliga a estar presente únicamente con tus palabras.
+
+- [x] Conectar base de datos y autenticación
+- [ ] Escribir mi primera reflexión del día
+- [ ] Escuchar la lluvia en modo concentración
+
+> "Escribir no es más que el intento de recordar lo que aún no hemos vivido."`,
             images: [],
-            tags: ['bienvenida'],
+            tags: ['bienvenida', 'reflexión'],
+            mood: 'Calmo',
             date: new Date().toISOString().split('T')[0],
             pinned: true,
             createdAt: new Date().toISOString(),
@@ -101,6 +116,7 @@ function JournalApp() {
           setEntries([sample]);
           setSelectedEntryId(sample.id);
           saveEntryToFirestore(user.uid, sample);
+          saveEntryToMongo(sample).catch(() => {});
         }
         setSyncStatus('synced');
       },
@@ -181,7 +197,7 @@ function JournalApp() {
     setEntries(updatedEntries);
   };
 
-  // Publish / Post current entry to Database (Firestore)
+  // Publish / Post current entry to Database (MongoDB + Firestore)
   const handlePublishEntry = async () => {
     if (!selectedEntry || !user) return;
 
@@ -327,6 +343,14 @@ function JournalApp() {
           onNewEntry={handleNewEntry}
           onOpenSearch={() => setIsSearchModalOpen(true)}
           onOpenExport={() => setIsExportModalOpen(true)}
+          streakDays={streak.currentStreak}
+          onOpenStats={() => setIsStatsModalOpen(true)}
+          hasTimeCapsule={timeCapsuleMemories.length > 0}
+          onOpenTimeCapsule={() => {
+            if (timeCapsuleMemories.length > 0) {
+              setSelectedEntryId(timeCapsuleMemories[0].entry.id);
+            }
+          }}
         />
       )}
 
@@ -365,6 +389,8 @@ function JournalApp() {
             onSearchChange={setSearchQuery}
             selectedTag={selectedTag}
             onSelectTag={setSelectedTag}
+            selectedMood={selectedMood}
+            onSelectMood={setSelectedMood}
             activeFilter={activeFilter}
             onFilterChange={setActiveFilter}
           />
@@ -382,6 +408,8 @@ function JournalApp() {
             onOpenLightbox={handleOpenLightbox}
             isFocusMode={isFocusMode}
             onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}
+            timeCapsuleMemories={timeCapsuleMemories}
+            onOpenMemory={(id) => setSelectedEntryId(id)}
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-neutral-400">
@@ -423,6 +451,14 @@ function JournalApp() {
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         entries={entries}
+      />
+
+      {/* Habits & Stats Heatmap Modal */}
+      <HabitsAndStatsModal
+        isOpen={isStatsModalOpen}
+        onClose={() => setIsStatsModalOpen(false)}
+        entries={entries}
+        onSelectMoodFilter={(mood) => setSelectedMood(mood)}
       />
     </div>
   );

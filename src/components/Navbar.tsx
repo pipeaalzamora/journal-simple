@@ -13,6 +13,9 @@ import {
   Download,
   LogOut,
   User as UserIcon,
+  Flame,
+  TrendingUp,
+  History,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { SyncStatus } from '../types/journal';
@@ -26,6 +29,10 @@ interface NavbarProps {
   onNewEntry: () => void;
   onOpenSearch: () => void;
   onOpenExport: () => void;
+  streakDays?: number;
+  onOpenStats?: () => void;
+  hasTimeCapsule?: boolean;
+  onOpenTimeCapsule?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -37,6 +44,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNewEntry,
   onOpenSearch,
   onOpenExport,
+  streakDays = 0,
+  onOpenStats,
+  hasTimeCapsule = false,
+  onOpenTimeCapsule,
 }) => {
   const { user, isOnline, signInWithGoogle, logOut } = useAuth();
 
@@ -58,8 +69,36 @@ export const Navbar: React.FC<NavbarProps> = ({
           </span>
         </div>
 
-        {/* Sync Status Badge */}
+        {/* Sync Status Badge & Streak Pill */}
         <div className="flex items-center gap-2">
+          {/* Streak indicator */}
+          {onOpenStats && (
+            <button
+              onClick={onOpenStats}
+              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono-journal rounded border transition-colors ${
+                streakDays > 0
+                  ? 'border-neutral-300 dark:border-neutral-700 bg-neutral-100/70 dark:bg-neutral-900/60 text-neutral-900 dark:text-neutral-100 hover:border-black dark:hover:border-white'
+                  : 'border-neutral-200 dark:border-neutral-800 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'
+              }`}
+              title="Ver mapa de calor y racha de hábitos"
+            >
+              <Flame className={`w-3.5 h-3.5 ${streakDays > 0 ? 'text-orange-500 fill-orange-500/20' : 'text-neutral-400'}`} />
+              <span>{streakDays} {streakDays === 1 ? 'día' : 'días'}</span>
+            </button>
+          )}
+
+          {/* Time Capsule alert badge if memories exist */}
+          {hasTimeCapsule && onOpenTimeCapsule && (
+            <button
+              onClick={onOpenTimeCapsule}
+              className="flex items-center gap-1 px-2.5 py-1 text-xs font-mono-journal rounded border border-neutral-800 dark:border-neutral-200 bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 hover:opacity-90 animate-pulse"
+              title="¡Tienes un recuerdo de 'En este día'!"
+            >
+              <History className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">En este día</span>
+            </button>
+          )}
+
           <div
             className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono-journal rounded border border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 text-neutral-700 dark:text-neutral-300"
             title={
@@ -118,6 +157,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Action Controls */}
         <div className="flex items-center gap-1">
+          {/* Habits & Stats Heatmap Modal Button */}
+          {onOpenStats && (
+            <button
+              onClick={onOpenStats}
+              title="Estadísticas, hábitos y mapa de calor anual"
+              className="p-2 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300 transition-colors"
+            >
+              <TrendingUp className="w-4 h-4" />
+            </button>
+          )}
+
           {/* Quick Search */}
           <button
             onClick={onOpenSearch}
@@ -160,7 +210,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="flex items-center gap-1 ml-1 px-3 py-1.5 text-xs font-sans-ui font-medium rounded bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 hover:bg-neutral-800 dark:hover:bg-neutral-200 transition-colors shadow-sm"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span className="hidden xs:inline">Escribir</span>
+            <span className="hidden sm:inline">Nuevo</span>
           </button>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Pin,
   Image as ImageIcon,
@@ -8,8 +8,11 @@ import {
   Smile,
   Search,
   X,
+  Clock,
+  ChevronDown,
 } from 'lucide-react';
 import { JournalEntry } from '../types/journal';
+import { calculateReadingTime } from '../lib/journalStats';
 
 interface JournalListProps {
   entries: JournalEntry[];
@@ -21,9 +24,22 @@ interface JournalListProps {
   onSearchChange: (query: string) => void;
   selectedTag: string | null;
   onSelectTag: (tag: string | null) => void;
+  selectedMood: string | null;
+  onSelectMood: (mood: string | null) => void;
   activeFilter: 'all' | 'pinned' | 'with-images';
   onFilterChange: (filter: 'all' | 'pinned' | 'with-images') => void;
 }
+
+const AVAILABLE_MOODS = [
+  'Calmo',
+  'Pensativo',
+  'Inspirado',
+  'Introspectivo',
+  'Agradecido',
+  'Enérgico',
+  'Melancólico',
+  'Desafiado',
+];
 
 export const JournalList: React.FC<JournalListProps> = ({
   entries,
@@ -35,9 +51,13 @@ export const JournalList: React.FC<JournalListProps> = ({
   onSearchChange,
   selectedTag,
   onSelectTag,
+  selectedMood,
+  onSelectMood,
   activeFilter,
   onFilterChange,
 }) => {
+  const [showMoodDropdown, setShowMoodDropdown] = useState(false);
+
   // Collect all unique tags
   const allTags = Array.from(
     new Set(entries.flatMap((entry) => entry.tags || []))
@@ -56,6 +76,11 @@ export const JournalList: React.FC<JournalListProps> = ({
 
     // Tag filter
     if (selectedTag && (!entry.tags || !entry.tags.includes(selectedTag))) {
+      return false;
+    }
+
+    // Mood filter
+    if (selectedMood && entry.mood !== selectedMood) {
       return false;
     }
 
@@ -105,43 +130,110 @@ export const JournalList: React.FC<JournalListProps> = ({
           )}
         </div>
 
-        {/* Quick Filter Tabs */}
-        <div className="flex items-center gap-1 mt-2.5 text-xs font-sans-ui">
-          <button
-            onClick={() => onFilterChange('all')}
-            className={`px-2.5 py-1 rounded transition-colors ${
-              activeFilter === 'all'
-                ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 font-medium'
-                : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200/60 dark:hover:bg-neutral-800'
-            }`}
-          >
-            Todas ({entries.length})
-          </button>
-          <button
-            onClick={() => onFilterChange('pinned')}
-            className={`px-2.5 py-1 rounded transition-colors ${
-              activeFilter === 'pinned'
-                ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 font-medium'
-                : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200/60 dark:hover:bg-neutral-800'
-            }`}
-          >
-            Fijadas
-          </button>
-          <button
-            onClick={() => onFilterChange('with-images')}
-            className={`px-2.5 py-1 rounded transition-colors ${
-              activeFilter === 'with-images'
-                ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 font-medium'
-                : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200/60 dark:hover:bg-neutral-800'
-            }`}
-          >
-            Con fotos
-          </button>
+        {/* Quick Filter Tabs & Mood Dropdown */}
+        <div className="flex items-center justify-between gap-1 mt-2.5 text-xs font-sans-ui">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onFilterChange('all')}
+              className={`px-2.5 py-1 rounded transition-colors ${
+                activeFilter === 'all'
+                  ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 font-medium'
+                  : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200/60 dark:hover:bg-neutral-800'
+              }`}
+            >
+              Todas ({entries.length})
+            </button>
+            <button
+              onClick={() => onFilterChange('pinned')}
+              className={`px-2.5 py-1 rounded transition-colors ${
+                activeFilter === 'pinned'
+                  ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 font-medium'
+                  : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200/60 dark:hover:bg-neutral-800'
+              }`}
+            >
+              Fijadas
+            </button>
+            <button
+              onClick={() => onFilterChange('with-images')}
+              className={`px-2.5 py-1 rounded transition-colors ${
+                activeFilter === 'with-images'
+                  ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 font-medium'
+                  : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200/60 dark:hover:bg-neutral-800'
+              }`}
+            >
+              Con fotos
+            </button>
+          </div>
+
+          {/* Mood Filter Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowMoodDropdown(!showMoodDropdown)}
+              className={`flex items-center gap-1 px-2 py-1 rounded border text-[11px] font-mono-journal transition-colors ${
+                selectedMood
+                  ? 'border-neutral-900 dark:border-neutral-100 bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 font-medium'
+                  : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-neutral-800 dark:hover:border-neutral-200'
+              }`}
+              title="Filtrar por estado de ánimo"
+            >
+              <Smile className="w-3 h-3" />
+              <span>{selectedMood || 'Ánimo'}</span>
+              <ChevronDown className="w-2.5 h-2.5 opacity-60" />
+            </button>
+
+            {showMoodDropdown && (
+              <>
+                <div
+                  className="fixed inset-0 z-30"
+                  onClick={() => setShowMoodDropdown(false)}
+                />
+                <div className="absolute right-0 mt-1 w-44 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-md shadow-lg py-1 z-40 text-xs font-serif-journal">
+                  <div className="px-2.5 py-1 text-[10px] font-mono-journal text-neutral-400 border-b border-neutral-100 dark:border-neutral-800">
+                    Filtrar por ánimo:
+                  </div>
+                  <button
+                    onClick={() => {
+                      onSelectMood(null);
+                      setShowMoodDropdown(false);
+                    }}
+                    className={`w-full text-left px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 ${
+                      !selectedMood ? 'font-semibold text-black dark:text-white' : 'text-neutral-600 dark:text-neutral-400'
+                    }`}
+                  >
+                    Todos los estados
+                  </button>
+                  {AVAILABLE_MOODS.map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => {
+                        onSelectMood(m);
+                        setShowMoodDropdown(false);
+                      }}
+                      className={`w-full text-left px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 ${
+                        selectedMood === m ? 'font-semibold text-black dark:text-white' : 'text-neutral-600 dark:text-neutral-400'
+                      }`}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
-        {/* Tags horizontal list */}
-        {allTags.length > 0 && (
-          <div className="flex items-center gap-1.5 mt-2 overflow-x-auto pb-1 pt-0.5 no-scrollbar">
+        {/* Active Filters bar (Tags & Mood) */}
+        {(selectedTag || selectedMood) && (
+          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+            {selectedMood && (
+              <button
+                onClick={() => onSelectMood(null)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-mono-journal rounded-full bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 shrink-0"
+              >
+                <span>Ánimo: {selectedMood}</span>
+                <X className="w-2.5 h-2.5" />
+              </button>
+            )}
             {selectedTag && (
               <button
                 onClick={() => onSelectTag(null)}
@@ -151,15 +243,17 @@ export const JournalList: React.FC<JournalListProps> = ({
                 <X className="w-2.5 h-2.5" />
               </button>
             )}
+          </div>
+        )}
+
+        {/* Tags horizontal list */}
+        {allTags.length > 0 && !selectedTag && (
+          <div className="flex items-center gap-1.5 mt-2 overflow-x-auto pb-1 pt-0.5 no-scrollbar">
             {allTags.map((tag) => (
               <button
                 key={tag}
-                onClick={() => onSelectTag(selectedTag === tag ? null : tag)}
-                className={`px-2 py-0.5 text-[11px] font-mono-journal rounded-full border shrink-0 transition-colors ${
-                  selectedTag === tag
-                    ? 'hidden'
-                    : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-neutral-500'
-                }`}
+                onClick={() => onSelectTag(tag)}
+                className="px-2 py-0.5 text-[11px] font-mono-journal rounded-full border shrink-0 transition-colors border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-neutral-500"
               >
                 #{tag}
               </button>
@@ -178,6 +272,7 @@ export const JournalList: React.FC<JournalListProps> = ({
           filteredEntries.map((entry) => {
             const isSelected = entry.id === selectedEntryId;
             const snippet = entry.content?.replace(/\n+/g, ' ').slice(0, 110) || 'Sin contenido';
+            const { label: readTimeLabel } = calculateReadingTime(entry.content);
 
             return (
               <div
@@ -195,65 +290,72 @@ export const JournalList: React.FC<JournalListProps> = ({
                     <Calendar className="w-3 h-3 text-neutral-600 dark:text-neutral-400" />
                     {formatDate(entry.createdAt || entry.date)}
                   </span>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5">
+                    {/* Reading time badge */}
+                    <span className="flex items-center gap-0.5 text-[10px] text-neutral-400">
+                      <Clock className="w-2.5 h-2.5" />
+                      {readTimeLabel}
+                    </span>
+
                     {entry.mood && (
                       <span className="text-[10px] uppercase tracking-wider text-neutral-600 dark:text-neutral-400 border border-neutral-300 dark:border-neutral-700 px-1 rounded">
                         {entry.mood}
                       </span>
                     )}
+
                     {entry.pinned && (
-                      <Pin className="w-3 h-3 fill-neutral-800 dark:fill-neutral-200 text-neutral-800 dark:text-neutral-200" />
+                      <Pin className="w-3 h-3 text-neutral-900 dark:text-neutral-100 fill-current" />
+                    )}
+
+                    {entry.images && entry.images.length > 0 && (
+                      <span className="flex items-center gap-0.5 text-[10px]">
+                        <ImageIcon className="w-3 h-3 text-neutral-500" />
+                        <span>{entry.images.length}</span>
+                      </span>
                     )}
                   </div>
                 </div>
 
                 {/* Title */}
-                <h3 className="font-serif-journal font-semibold text-sm text-neutral-900 dark:text-neutral-100 line-clamp-1 mb-1">
-                  {entry.title || snippet.slice(0, 40) || 'Pensamiento sin título'}
+                <h3 className="font-serif-journal text-sm font-semibold tracking-tight text-neutral-900 dark:text-neutral-100 line-clamp-1 mb-1">
+                  {entry.title || 'Pensamiento sin título'}
                 </h3>
 
-                {/* Body Snippet */}
+                {/* Snippet */}
                 <p className="font-serif-journal text-xs text-neutral-600 dark:text-neutral-400 line-clamp-2 leading-relaxed mb-2">
                   {snippet}
                 </p>
 
-                {/* Attached Images preview & Tags */}
-                <div className="flex items-center justify-between gap-2 mt-2">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {entry.images && entry.images.length > 0 && (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-mono-journal text-neutral-500 dark:text-neutral-400 bg-neutral-200/60 dark:bg-neutral-800 px-1.5 py-0.5 rounded">
-                        <ImageIcon className="w-3 h-3" />
-                        <span>{entry.images.length}</span>
-                      </span>
-                    )}
-                    {entry.tags?.slice(0, 2).map((t) => (
+                {/* Tags and Delete on Hover */}
+                <div className="flex items-center justify-between pt-1">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {(entry.tags || []).slice(0, 3).map((tag) => (
                       <span
-                        key={t}
+                        key={tag}
                         className="text-[10px] font-mono-journal text-neutral-500 dark:text-neutral-400"
                       >
-                        #{t}
+                        #{tag}
                       </span>
                     ))}
-                    {entry.tags && entry.tags.length > 2 && (
+                    {(entry.tags || []).length > 3 && (
                       <span className="text-[10px] font-mono-journal text-neutral-400">
-                        +{entry.tags.length - 2}
+                        +{(entry.tags || []).length - 3}
                       </span>
                     )}
                   </div>
 
-                  {/* Actions on hover */}
                   <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
                     <button
                       onClick={(e) => onTogglePin(entry.id, e)}
-                      title={entry.pinned ? 'Desfijar' : 'Fijar al inicio'}
-                      className="p-1 rounded text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200 hover:bg-neutral-300/40 dark:hover:bg-neutral-700"
+                      title={entry.pinned ? 'Desfijar' : 'Fijar pensamiento'}
+                      className="p-1 rounded text-neutral-400 hover:text-black dark:hover:text-white"
                     >
                       <Pin className={`w-3 h-3 ${entry.pinned ? 'fill-current' : ''}`} />
                     </button>
                     <button
                       onClick={(e) => onDeleteEntry(entry.id, e)}
                       title="Eliminar pensamiento"
-                      className="p-1 rounded text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200 hover:bg-neutral-300/40 dark:hover:bg-neutral-700"
+                      className="p-1 rounded text-neutral-400 hover:text-red-500"
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
