@@ -34,6 +34,3 @@
 | ![Editor](https://via.placeholder.com/600x350.png?text=Journal+Editor+View) | ![History](https://via.placeholder.com/600x350.png?text=Journal+History+View) |
 
 ---
-* **LinkedIn:** [linkedin.com/in/pipeaalzamora](https://www.linkedin.com/in/pipeaalzamora/)[cite: 2]
-* **Correo:** [pipeaalzamora@gmail.com](mailto:pipeaalzamora@gmail.com)[cite: 2]
-* **GitHub:** [@pipeaalzamora](https://github.com/pipeaalzamora)[cite: 2]
